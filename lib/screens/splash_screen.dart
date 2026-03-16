@@ -5,7 +5,7 @@ import 'login_screen.dart';
 import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({Key? key}) : super(key: key);
+  const SplashScreen({super.key});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -55,11 +55,9 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDarkMode ? Colors.black : Colors.white;
-    final logoColor = isDarkMode ? Colors.white : Colors.black;
 
     return Scaffold(
-      backgroundColor: bgColor,
+      backgroundColor: isDarkMode ? Colors.black : Colors.white,
       body: Center(
         child: FadeTransition(
           opacity: _fadeAnimation,
@@ -68,7 +66,7 @@ class _SplashScreenState extends State<SplashScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Логотип
+                // Логотип - используем иконку вместо изображения
                 Container(
                   width: 120,
                   height: 120,
@@ -76,30 +74,28 @@ class _SplashScreenState extends State<SplashScreen>
                     shape: BoxShape.circle,
                     color: const Color(0xFFA0B8FF).withOpacity(0.2),
                   ),
-                  child: Icon(
+                  child: const Icon(
                     Icons.chat_rounded,
                     size: 80,
-                    color: const Color(0xFFA0B8FF),
+                    color: Color(0xFFA0B8FF),
                   ),
                 ),
                 const SizedBox(height: 32),
+
                 // Название приложения
                 Text(
                   'Raven',
                   style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                     fontSize: 48,
                     fontWeight: FontWeight.w900,
-                    color: logoColor,
                   ),
                 ),
                 const SizedBox(height: 8),
+
                 Text(
                   'Messenger',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontSize: 18,
-                    color: isDarkMode
-                        ? const Color(0xFF7B818A)
-                        : const Color(0xFF847E75),
                   ),
                 ),
               ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../data/datasources/remote/api_client.dart';
 import '../theme/app_theme.dart';
+import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback onLoginSuccess;
@@ -13,10 +14,17 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  late TextEditingController _emailController;
+  late TextEditingController _passwordController;
   bool _isLoading = false;
   bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController = TextEditingController();
+    _passwordController = TextEditingController();
+  }
 
   @override
   void dispose() {
@@ -27,6 +35,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _login() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Заполните все поля')),
       );
@@ -42,6 +51,8 @@ class _LoginScreenState extends State<LoginScreen> {
         _passwordController.text,
       );
 
+      if (!mounted) return;
+
       if (response.statusCode == 200 && response.data is Map) {
         final userId = response.data['userId'];
         final token = response.data['token'];
@@ -56,13 +67,12 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка входа: $e')),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка входа: $e')),
+      );
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -80,7 +90,7 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Логотип
+                // Логотип - используем иконку вместо изображения
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -98,7 +108,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       Text(
                         'Raven',
                         style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                          color: primaryColor,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -132,8 +141,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   keyboardType: TextInputType.emailAddress,
                   enabled: !_isLoading,
                   decoration: InputDecoration(
-                    hintText: 'Введите вашу эл. почту',
-                    prefixIcon: const Icon(Icons.email),
+                    labelText: 'Email',
+                    hintText: 'Введите ваш email',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -144,8 +156,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   obscureText: _obscurePassword,
                   enabled: !_isLoading,
                   decoration: InputDecoration(
+                    labelText: 'Пароль',
                     hintText: 'Введите свой пароль',
-                    prefixIcon: const Icon(Icons.lock),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword ? Icons.visibility_off : Icons.visibility,
@@ -154,6 +166,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         setState(() => _obscurePassword = !_obscurePassword);
                       },
                     ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -161,6 +176,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 // Кнопка входа
                 ElevatedButton(
                   onPressed: _isLoading ? null : _login,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                   child: _isLoading
                       ? const SizedBox(
                           height: 20,
@@ -175,12 +196,24 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 16),
 
                 // Ссылка на регистрацию
-                TextButton(
-                  onPressed: _isLoading ? null : () {},
-                  child: Text(
-                    'Нет аккаунта? Зарегистрируйтесь',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('Нет аккаунта? '),
+                    TextButton(
+                      onPressed: _isLoading
+                          ? null
+                          : () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const RegisterScreen(),
+                                ),
+                              );
+                            },
+                      child: const Text('Зарегистрируйтесь'),
+                    ),
+                  ],
                 ),
               ],
             ),

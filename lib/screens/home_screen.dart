@@ -147,7 +147,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 shape: BoxShape.circle,
                 color: AppTheme.lightButtonBg.withOpacity(0.2),
               ),
-              child: const Icon(Icons.chat_rounded, size: 20),
+              child: Image.asset(
+                isDarkMode
+                    ? 'assets/images/logo_light.png'
+                    : 'assets/images/logo_dark.png',
+                width: 24,
+                height: 24,
+              ),
             ),
             const SizedBox(width: 12),
             const Text('Raven'),
@@ -164,16 +170,16 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: GestureDetector(
-        onHorizontalDragEnd: (details) {
-          if (details.primaryVelocity! > 0) {
-            _toggleProfileSidebar();
-          }
-        },
-        child: Stack(
-          children: [
-            // Основной контент
-            _isLoading
+      body: Stack(
+        children: [
+          // Основной контент
+          GestureDetector(
+            onHorizontalDragEnd: (details) {
+              if (details.primaryVelocity! < -500) {
+                _toggleProfileSidebar();
+              }
+            },
+            child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _chats.isEmpty
                     ? _buildEmptyState(context)
@@ -281,29 +287,27 @@ class _HomeScreenState extends State<HomeScreen> {
                           },
                         ),
                       ),
+          ),
 
-            // Боковая панель профиля
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 300),
-              right: _showProfileSidebar ? 0 : -400,
-              top: 0,
-              bottom: 0,
-              width: 350,
-              child: _buildProfileSidebar(context, isDarkMode),
+          // Полупрозрачный фон при открытой боковой панели
+          if (_showProfileSidebar)
+            GestureDetector(
+              onTap: _toggleProfileSidebar,
+              child: Container(
+                color: Colors.black.withOpacity(0.4),
+              ),
             ),
 
-            // Полупрозрачный фон при открытой боковой панели
-            if (_showProfileSidebar)
-              Positioned.fill(
-                child: GestureDetector(
-                  onTap: _toggleProfileSidebar,
-                  child: Container(
-                    color: Colors.black.withOpacity(0.3),
-                  ),
-                ),
-              ),
-          ],
-        ),
+          // Боковая панель профиля (слева)
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 300),
+            left: _showProfileSidebar ? 0 : -350,
+            top: 0,
+            bottom: 0,
+            width: 350,
+            child: _buildProfileSidebar(context, isDarkMode),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _openSearchScreen,
@@ -328,7 +332,8 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Профиль', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text('Профиль',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: _toggleProfileSidebar,
@@ -336,7 +341,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          Divider(color: isDarkMode ? AppTheme.darkBg3 : AppTheme.lightBg2),
+          Divider(
+              color: isDarkMode ? AppTheme.darkBg3 : AppTheme.lightBg2,
+              height: 1),
 
           // Содержимое профиля
           Expanded(
@@ -385,7 +392,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
 
           // Кнопки внизу
-          Divider(color: isDarkMode ? AppTheme.darkBg3 : AppTheme.lightBg2),
+          Divider(
+              color: isDarkMode ? AppTheme.darkBg3 : AppTheme.lightBg2,
+              height: 1),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -420,8 +429,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       context: context,
                       builder: (context) => AlertDialog(
                         title: const Text('Выход'),
-                        content: const Text(
-                            'Вы уверены, что хотите выйти?'),
+                        content:
+                            const Text('Вы уверены, что хотите выйти?'),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.pop(context),
