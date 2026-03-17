@@ -5,17 +5,22 @@ import '../theme/app_theme.dart';
 import 'chat_screen.dart';
 
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({Key? key}) : super(key: key);
+  const SearchScreen({super.key});
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
 }
 
 class _SearchScreenState extends State<SearchScreen> {
-  final _searchController = TextEditingController();
   List<dynamic> _searchResults = [];
-  bool _isSearching = false;
-  bool _hasSearched = false;
+  bool _isLoading = false;
+  late TextEditingController _searchController;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+  }
 
   @override
   void dispose() {
@@ -23,204 +28,175 @@ class _SearchScreenState extends State<SearchScreen> {
     super.dispose();
   }
 
-  Future<void> _searchUsers(String searchTerm) async {
-    if (searchTerm.trim().isEmpty) {
-      setState(() {
-        _searchResults = [];
-        _hasSearched = false;
-      });
+  Future<void> _searchUsers(String query) async {
+    if (query.isEmpty) {
+      setState(() => _searchResults = []);
       return;
     }
 
-    setState(() => _isSearching = true);
-
+    setState(() => _isLoading = true);
     try {
       final apiClient = context.read<ApiClient>();
-      final response = await apiClient.searchUsers(
-        searchTerm: searchTerm.trim(),
-        page: 1,
-        pageSize: 50,
+      final response = await apiClient.get(
+        '/Users/list/search/user?SearchTerm=$query&Page=1&PageSize=25',
       );
 
+      if (!mounted) return;
       setState(() {
-        if (response.data is List) {
-          _searchResults = response.data as List<dynamic>;
-        } else if (response.data is Map) {
+        if (response.data is Map) {
           _searchResults = (response.data['users'] as List?)?.cast<dynamic>() ?? [];
-        } else {
-          _searchResults = [];
+        } else if (response.data is List) {
+          _searchResults = response.data as List<dynamic>;
         }
-        _hasSearched = true;
-        _isSearching = false;
+        _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isSearching = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка поиска: $e')),
-        );
-      }
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка поиска: $e')),
+      );
     }
   }
 
-  void _openUserChat(dynamic user) {
+  void _openChat(dynamic user) {
     final userId = user['id'] ?? user['userId'];
-    final username = user['username'] ?? 
-        '${user['firstName'] ?? ''} ${user['lastName'] ?? ''}'.trim();
+    final displayName = user['username'] ?? '${user['firstName']} ${user['lastName']}';
     final avatarUrl = user['avatarUrl'] as String?;
 
-    if (userId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ошибка: ID пользователя не найден')),
-      );
-      return;
-    }
-
-    Navigator.pushReplacement(
+    Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ChatScreen(
-          userId: userId.toString(),
-          username: username.isNotEmpty ? username : 'Пользователь',
+        builder: (_) => ChatScreen(
+          chatId: userId.toString(),
+          username: displayName,
           avatarUrl: avatarUrl,
           isNewChat: true,
         ),
       ),
-    );
+    ).then((_) {
+      if (mounted) Navigator.pop(context);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Поиск'),
+        title: const Text('Поиск пользователей'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: Column(
         children: [
+          // Поле поиска
           Container(
             padding: const EdgeInsets.all(16),
-            color: Theme.of(context).scaffoldBackgroundColor,
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: isDarkMode
+                      ? AppTheme.darkBg3
+                      : AppTheme.lightBg2,
+                ),
+              ),
+            ),
             child: TextField(
               controller: _searchController,
-              autofocus: true,
+              onChanged: _searchUsers,
               decoration: InputDecoration(
-                hintText: 'Введите никнейм или имя...',
+                hintText: 'Введите имя или никнейм...',
                 prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() {
-                            _searchResults = [];
-                            _hasSearched = false;
-                          });
-                        },
-                      )
-                    : null,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
               ),
-              onChanged: (value) {
-                setState(() {});
-                if (value.isNotEmpty) {
-                  _searchUsers(value);
-                }
-              },
             ),
           ),
+
+          // Результаты поиска
           Expanded(
-            child: _buildSearchResults(),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _searchResults.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.person_search,
+                              size: 80,
+                              color: Theme.of(context).textTheme.bodyMedium?.color,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              _searchController.text.isEmpty
+                                  ? 'Начните поиск'
+                                  : 'Пользователи не найдены',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: _searchResults.length,
+                        separatorBuilder: (context, index) => Divider(
+                          height: 1,
+                          indent: 72,
+                          color: Theme.of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.color
+                              ?.withOpacity(0.1),
+                        ),
+                        itemBuilder: (context, index) {
+                          final user = _searchResults[index];
+                          final username = user['username'] ?? 'Unknown';
+                          final displayName =
+                              '${user['firstName'] ?? ''} ${user['lastName'] ?? ''}'
+                                  .trim();
+                          final avatarUrl = user['avatarUrl'] as String?;
+
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundImage: avatarUrl != null &&
+                                      avatarUrl.isNotEmpty
+                                  ? NetworkImage(avatarUrl)
+                                  : null,
+                              backgroundColor:
+                                  AppTheme.lightButtonBg.withOpacity(0.3),
+                              child: avatarUrl == null || avatarUrl.isEmpty
+                                  ? Text(
+                                      username.isNotEmpty
+                                          ? username[0].toUpperCase()
+                                          : '?',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    )
+                                  : null,
+                              onBackgroundImageError: (exception, stackTrace) {
+                                // Ошибка загрузки - показываем букву
+                              },
+                            ),
+                            title: Text(username),
+                            subtitle: Text(displayName),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => _openChat(user),
+                          );
+                        },
+                      ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSearchResults() {
-    if (_isSearching) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (!_hasSearched) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.search,
-              size: 64,
-              color: Theme.of(context).textTheme.bodyMedium?.color,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Введите имя или никнейм',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_searchResults.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.person_search,
-              size: 64,
-              color: Theme.of(context).textTheme.bodyMedium?.color,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Пользователи не найдены',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.separated(
-      itemCount: _searchResults.length,
-      separatorBuilder: (context, index) => Divider(
-        height: 1,
-        indent: 72,
-        color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.1),
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemBuilder: (context, index) {
-        final user = _searchResults[index];
-        final username = user['username'] ?? 
-            '${user['firstName'] ?? ''} ${user['lastName'] ?? ''}'.trim();
-        final avatarUrl = user['avatarUrl'] as String?;
-        final description = user['description'] as String?;
-
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-            backgroundColor: AppTheme.lightButtonBg.withOpacity(0.3),
-            child: avatarUrl == null
-                ? Text(
-                    username.isNotEmpty ? username[0].toUpperCase() : '?',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  )
-                : null,
-          ),
-          title: Text(username),
-          subtitle: description != null
-              ? Text(
-                  description,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                )
-              : null,
-          trailing: Icon(
-            Icons.message,
-            color: AppTheme.lightButtonBg,
-          ),
-          onTap: () => _openUserChat(user),
-        );
-      },
     );
   }
 }

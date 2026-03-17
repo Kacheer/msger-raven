@@ -111,31 +111,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Регистрация'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            const SizedBox(height: 32),
+            
+            // ✅ Логотип
+            Image.asset(
+              isDarkMode 
+                ? 'assets/images/logo_light.png'
+                : 'assets/images/logo_dark.png',
+              height: 80,
+              width: 80,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return const Icon(Icons.chat, size: 80);
+              },
+            ),
+            const SizedBox(height: 24),
+
             Text(
-              'Создайте аккаунт',
-              textAlign: TextAlign.center,
+              'Raven Messenger',
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Присоединитесь к Raven Messenger',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: isDarkMode ? AppTheme.darkAccent : AppTheme.lightAccent,
               ),
             ),
             const SizedBox(height: 32),

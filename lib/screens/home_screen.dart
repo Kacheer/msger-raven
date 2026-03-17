@@ -63,7 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _deleteChat(String chatId) async {
     try {
-      await context.read<ApiClient>().deleteChat(chatId);
+      await context.read<ApiClient>().delete('/Chats/$chatId');
       await _loadChats();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -88,7 +88,10 @@ class _HomeScreenState extends State<HomeScreen> {
         content: const Text('Вы уверены, что хотите удалить чат?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              Navigator.pop(context);
+              // Чат остаётся в списке (Dismissible уже вернул его)
+            },
             child: const Text('Отмена'),
           ),
           TextButton(
@@ -140,20 +143,28 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Row(
           children: [
-            Container(
-              width: 40,
+            // ✅ Добавить логотип вместо иконки
+            Image.asset(
+              isDarkMode
+                  ? 'assets/images/logo_light.png'
+                  : 'assets/images/logo_dark.png',
               height: 40,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppTheme.lightButtonBg.withOpacity(0.2),
-              ),
-              child: Image.asset(
-                isDarkMode
-                    ? 'assets/images/logo_light.png'
-                    : 'assets/images/logo_dark.png',
-                width: 24,
-                height: 24,
-              ),
+              width: 40,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppTheme.lightButtonBg.withOpacity(0.2),
+                  ),
+                  child: Icon(
+                    Icons.chat_rounded,
+                    size: 20,
+                  ),
+                );
+              },
             ),
             const SizedBox(width: 12),
             const Text('Raven'),
@@ -170,16 +181,16 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          // Основной контент
-          GestureDetector(
-            onHorizontalDragEnd: (details) {
-              if (details.primaryVelocity! < -500) {
-                _toggleProfileSidebar();
-              }
-            },
-            child: _isLoading
+      body: GestureDetector(
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity! > 500) {
+            _toggleProfileSidebar();
+          }
+        },
+        child: Stack(
+          children: [
+            // Основной контент
+            _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _chats.isEmpty
                     ? _buildEmptyState(context)
@@ -205,7 +216,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             final unreadCount = chat['unreadCount'] ?? 0;
 
                             return Dismissible(
-                              key: Key(chat['id'].toString()),
+                              key: Key(chat['id'] ?? chat['chatId'] ?? 'unknown'),
                               direction: DismissDirection.endToStart,
                               background: Container(
                                 alignment: Alignment.centerRight,
@@ -217,25 +228,35 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               onDismissed: (direction) {
+                                // ✅ Сначала удаляем из списка
+                                setState(() {
+                                  _chats.removeAt(index);
+                                });
+                                // Показать подтверждение
                                 _showDeleteConfirmation(chat);
                               },
                               child: ListTile(
                                 leading: CircleAvatar(
-                                  backgroundImage: avatarUrl != null
+                                  backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
                                       ? NetworkImage(avatarUrl)
                                       : null,
                                   backgroundColor:
                                       AppTheme.lightButtonBg.withOpacity(0.3),
                                   radius: 28,
-                                  child: avatarUrl == null
+                                  child: avatarUrl == null || avatarUrl.isEmpty
                                       ? Text(
-                                          chatName[0].toUpperCase(),
+                                          chatName.isNotEmpty
+                                              ? chatName[0].toUpperCase()
+                                              : '?',
                                           style: const TextStyle(
                                             fontWeight: FontWeight.bold,
                                             fontSize: 18,
                                           ),
                                         )
                                       : null,
+                                  onBackgroundImageError: (exception, stackTrace) {
+                                    // Ошибка загрузки аватарки - показываем букву
+                                  },
                                 ),
                                 title: Text(
                                   chatName,
@@ -287,27 +308,27 @@ class _HomeScreenState extends State<HomeScreen> {
                           },
                         ),
                       ),
-          ),
 
-          // Полупрозрачный фон при открытой боковой панели
-          if (_showProfileSidebar)
-            GestureDetector(
-              onTap: _toggleProfileSidebar,
-              child: Container(
-                color: Colors.black.withOpacity(0.4),
+            // Полупрозрачный фон при открытой боковой панели
+            if (_showProfileSidebar)
+              GestureDetector(
+                onTap: _toggleProfileSidebar,
+                child: Container(
+                  color: Colors.black.withOpacity(0.4),
+                ),
               ),
-            ),
 
-          // Боковая панель профиля (слева)
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 300),
-            left: _showProfileSidebar ? 0 : -350,
-            top: 0,
-            bottom: 0,
-            width: 350,
-            child: _buildProfileSidebar(context, isDarkMode),
-          ),
-        ],
+            // Боковая панель профиля (слева)
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 300),
+              left: _showProfileSidebar ? 0 : -350,
+              top: 0,
+              bottom: 0,
+              width: 350,
+              child: _buildProfileSidebar(context, isDarkMode),
+            ),
+          ],
+        ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _openSearchScreen,

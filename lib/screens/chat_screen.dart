@@ -1,22 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:dio/dio.dart';
 import '../data/datasources/remote/api_client.dart';
 import '../theme/app_theme.dart';
 
 class ChatScreen extends StatefulWidget {
-  final String? chatId;
-  final String? userId;
+  final String chatId;
   final String username;
   final String? avatarUrl;
   final bool isNewChat;
 
   const ChatScreen({
     Key? key,
-    this.chatId,
-    this.userId,
+    required this.chatId,
     required this.username,
     this.avatarUrl,
-    this.isNewChat = false,
+    required this.isNewChat,
   }) : super(key: key);
 
   @override
@@ -24,115 +23,21 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final _messageController = TextEditingController();
-  final List<Map<String, dynamic>> _messages = [];
-  late String _chatId;
+  List<dynamic> _messages = [];
   bool _isLoading = false;
-  bool _isSending = false;
-  late String _currentUserId;
-  bool _showEmojiPicker = false;
+  late TextEditingController _messageController;
+  String? _actualChatId;
 
   @override
   void initState() {
     super.initState();
-    _chatId = widget.chatId ?? '';
-    final apiClient = context.read<ApiClient>();
-    _currentUserId = apiClient.currentUserId ?? '';
-
-    if (!widget.isNewChat && _chatId.isNotEmpty) {
+    _messageController = TextEditingController();
+    _actualChatId = widget.chatId;
+    
+    if (widget.isNewChat) {
+      _createPersonalChat();
+    } else {
       _loadMessages();
-    }
-  }
-
-  Future<void> _loadMessages() async {
-    if (_chatId.isEmpty) return;
-
-    setState(() => _isLoading = true);
-    try {
-      final apiClient = context.read<ApiClient>();
-      final response = await apiClient.get(
-        '/Messages/$_chatId',
-        queryParameters: {'page': 1, 'pageSize': 50},
-      );
-
-      setState(() {
-        _messages.clear();
-        if (response.data is Map) {
-          final msgList = (response.data['messages'] as List?)?.cast<dynamic>() ?? [];
-          for (final msg in msgList.reversed) {
-            _messages.add(_parseMessage(msg));
-          }
-        } else if (response.data is List) {
-          for (final msg in (response.data as List).reversed) {
-            _messages.add(_parseMessage(msg));
-          }
-        }
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка загрузки сообщений: $e')),
-        );
-      }
-    }
-  }
-
-  Map<String, dynamic> _parseMessage(dynamic msg) {
-    final senderId = msg['senderId'].toString();
-    return {
-      'id': msg['id'],
-      'content': msg['content'],
-      'createdAt': msg['createdAt'],
-      'senderId': senderId,
-      'isOwn': senderId == _currentUserId,
-    };
-  }
-
-  Future<void> _sendMessage() async {
-    if (_messageController.text.trim().isEmpty) return;
-
-    final messageContent = _messageController.text;
-    _messageController.clear();
-    setState(() => _showEmojiPicker = false);
-
-    setState(() => _isSending = true);
-
-    try {
-      final apiClient = context.read<ApiClient>();
-
-      final response = await apiClient.sendMessage(
-        chatId: _chatId.isNotEmpty ? _chatId : '',
-        content: messageContent,
-        targetUserId: widget.isNewChat && widget.userId != null ? widget.userId : null,
-      );
-
-      if (widget.isNewChat && _chatId.isEmpty && response.data is Map) {
-        final newChatId = response.data['chatId'] ?? response.data['id'];
-        if (newChatId != null) {
-          setState(() => _chatId = newChatId.toString());
-        }
-      }
-
-      setState(() {
-        _messages.insert(0, {
-          'id': response.data is Map ? (response.data['id'] ?? response.data['messageId']) : 'local_${DateTime.now().millisecondsSinceEpoch}',
-          'content': messageContent,
-          'createdAt': DateTime.now().toIso8601String(),
-          'senderId': _currentUserId,
-          'isOwn': true,
-        });
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка отправки: ${e.toString()}')),
-        );
-      }
-      _messageController.text = messageContent;
-    } finally {
-      setState(() => _isSending = false);
     }
   }
 
@@ -142,277 +47,516 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
+  Future<void> _createPersonalChat() async {
+    try {
+      final apiClient = context.read<ApiClient>();
+      final response = await apiClient.post(
+        '/Chats/personal/${widget.chatId}',
+      );
+
+      if (!mounted) return;
+      
+      final chatId = response.data['id'] ?? response.data['chatId'];
+      setState(() {
+        _actualChatId = chatId.toString();
+      });
+      
+      await _loadMessages();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка создания чата: $e')),
+      );
+    }
+  }
+
+  Future<void> _loadMessages() async {
+    if (!mounted || _actualChatId == null) return;
+    setState(() => _isLoading = true);
+    try {
+      final apiClient = context.read<ApiClient>();
+      final response = await apiClient.get(
+        '/Messages/$_actualChatId?page=1&pageSize=50',
+      );
+
+      if (!mounted) return;
+      setState(() {
+        if (response.data is Map) {
+          _messages = List.from(
+            (response.data['messages'] as List?)?.cast<dynamic>() ?? [],
+          ).reversed.toList();
+        } else if (response.data is List) {
+          _messages = List.from(response.data as List<dynamic>).reversed.toList();
+        }
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _sendMessage() async {
+    final content = _messageController.text.trim();
+    if (content.isEmpty || _actualChatId == null) return;
+
+    _messageController.clear();
+
+    try {
+      final apiClient = context.read<ApiClient>();
+      final formData = FormData.fromMap({
+        'ChatId': _actualChatId,
+        'Content': content,
+      });
+
+      final response = await apiClient.dio.post(
+        '/Messages/send?targetUserId=$_actualChatId',
+        data: formData,
+      );
+
+      // ✅ Добавляем реальное сообщение с сервера вместо перезагрузки
+      if (mounted && response.statusCode == 200) {
+        setState(() {
+          _messages.insert(0, response.data);
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _messageController.text = content;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка отправки: $e')),
+      );
+    }
+  }
+
+  Future<void> _deleteMessage(String messageId) async {
+    try {
+      final apiClient = context.read<ApiClient>();
+      await apiClient.delete('/Messages/delete/$messageId');
+      
+      if (mounted) {
+        setState(() {
+          _messages.removeWhere((m) => (m['id'] ?? m['messageId']) == messageId);
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка удаления: $e')),
+      );
+    }
+  }
+
+  void _showMessageContextMenu(dynamic message, Offset position) {
+    final messageId = message['id'] ?? message['messageId'];
+    final senderId = message['senderId'] ?? '';
+    final currentUserId = context.read<ApiClient>().currentUserId ?? '';
+    final isOwnMessage = senderId == currentUserId;
+
+    showMenu(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy + 50, // ✅ Смещаем вниз под сообщение
+        MediaQuery.of(context).size.width - position.dx,
+        0,
+      ),
+      items: [
+        if (isOwnMessage)
+          PopupMenuItem(
+            child: const Row(
+              children: [
+                Icon(Icons.edit, size: 20),
+                SizedBox(width: 8),
+                Text('Редактировать'),
+              ],
+            ),
+            onTap: () {
+              _showEditMessageDialog(messageId, message['content']);
+            },
+          ),
+        if (isOwnMessage)
+          PopupMenuItem(
+            child: const Row(
+              children: [
+                Icon(Icons.delete, size: 20, color: Colors.red),
+                SizedBox(width: 8),
+                Text('Удалить', style: TextStyle(color: Colors.red)),
+              ],
+            ),
+            onTap: () {
+              _showDeleteConfirmation(messageId);
+            },
+          ),
+        PopupMenuItem(
+          child: const Row(
+            children: [
+              Icon(Icons.reply, size: 20),
+              SizedBox(width: 8),
+              Text('Ответить'),
+            ],
+          ),
+          onTap: () {
+            // TODO: Reply to message
+          },
+        ),
+        PopupMenuItem(
+          child: const Row(
+            children: [
+              Icon(Icons.copy, size: 20),
+              SizedBox(width: 8),
+              Text('Копировать'),
+            ],
+          ),
+          onTap: () {
+            // TODO: Copy message
+          },
+        ),
+      ],
+    );
+  }
+
+  void _showEditMessageDialog(String messageId, String currentContent) {
+    final controller = TextEditingController(text: currentContent);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Редактировать сообщение'),
+        content: TextField(
+          controller: controller,
+          maxLines: 3,
+          minLines: 1,
+          decoration: InputDecoration(
+            hintText: 'Новый текст',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _editMessage(messageId, controller.text.trim());
+            },
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editMessage(String messageId, String newContent) async {
+    try {
+      final apiClient = context.read<ApiClient>();
+      final response = await apiClient.put(
+        '/Messages/edit/$messageId',
+        data: {'content': newContent},
+      );
+
+      if (mounted) {
+        final index = _messages.indexWhere((m) => (m['id'] ?? m['messageId']) == messageId);
+        if (index != -1) {
+          setState(() {
+            _messages[index]['content'] = newContent;
+            _messages[index]['isEdited'] = true;
+          });
+        }
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Сообщение отредактировано')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка редактирования: $e')),
+      );
+    }
+  }
+
+  void _showDeleteConfirmation(String messageId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удалить сообщение?'),
+        content: const Text('Это действие нельзя отменить'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteMessage(messageId);
+            },
+            child: const Text('Удалить', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
-    return WillPopScope(
-      onWillPop: () async {
-        Navigator.pop(context, true);
-        return false;
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: Row(
-            children: [
-              CircleAvatar(
-                backgroundImage: widget.avatarUrl != null
-                    ? NetworkImage(widget.avatarUrl!)
-                    : null,
-                backgroundColor: AppTheme.lightButtonBg.withOpacity(0.3),
-                radius: 16,
-                child: widget.avatarUrl == null
-                    ? Text(
-                        widget.username.isNotEmpty ? widget.username[0].toUpperCase() : '?',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      )
-                    : null,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      widget.username,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      'В сети',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppTheme.lightButtonBg,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          elevation: 0,
-          backgroundColor: isDarkMode ? AppTheme.darkBg2 : AppTheme.lightBg,
-        ),
-        body: Column(
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
           children: [
-            // Список сообщений
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _messages.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.chat_bubble_outline,
-                                size: 64,
-                                color: Theme.of(context).textTheme.bodyMedium?.color,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Начните разговор',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          reverse: true,
-                          itemCount: _messages.length,
-                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                          itemBuilder: (context, index) {
-                            final message = _messages[index];
-                            final isOwn = message['isOwn'] as bool;
-
-                            return Align(
-                              alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
-                              child: Container(
-                                margin: const EdgeInsets.symmetric(vertical: 8),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 12,
-                                ),
-                                constraints: BoxConstraints(
-                                  maxWidth: MediaQuery.of(context).size.width * 0.75,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isDarkMode
-                                      ? AppTheme.darkBg3
-                                      : AppTheme.lightBg,
-                                  border: Border.all(
-                                    color: isDarkMode
-                                        ? AppTheme.darkBg3
-                                        : const Color(0xFFEFEFEF),
-                                    width: 1.5,
-                                  ),
-                                  borderRadius: BorderRadius.circular(25),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: isOwn
-                                      ? CrossAxisAlignment.end
-                                      : CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      message['content'] ?? '',
-                                      style: TextStyle(
-                                        color: isDarkMode
-                                            ? Colors.white
-                                            : Colors.black,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _formatMessageTime(message['createdAt']),
-                                      style: TextStyle(
-                                        color: isDarkMode
-                                            ? AppTheme.darkAccent
-                                            : AppTheme.lightAccent,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-            ),
-
-            // Поле ввода сообщения
             Container(
-              padding: const EdgeInsets.all(16),
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
-                color: isDarkMode ? AppTheme.darkBg2 : AppTheme.lightBg,
-                border: Border(
-                  top: BorderSide(
-                    color: isDarkMode
-                        ? AppTheme.darkBg3
-                        : const Color(0xFFEFEFEF),
-                    width: 1,
-                  ),
-                ),
+                shape: BoxShape.circle,
+                color: AppTheme.lightButtonBg.withOpacity(0.2),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      // Кнопка прикрепления медиа
-                      IconButton(
-                        icon: Icon(
-                          Icons.attach_file,
-                          color: AppTheme.lightButtonBg,
-                        ),
-                        onPressed: () {
-                          // TODO: Реализовать выбор медиа
-                        },
-                        tooltip: 'Прикрепить файл',
-                      ),
-
-                      // Кнопка эмодзи
-                      IconButton(
-                        icon: Icon(
-                          Icons.emoji_emotions_outlined,
-                          color: AppTheme.lightButtonBg,
-                        ),
-                        onPressed: () {
-                          setState(() => _showEmojiPicker = !_showEmojiPicker);
-                        },
-                        tooltip: 'Эмодзи',
-                      ),
-
-                      // Поле ввода сообщения
-                      Expanded(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isDarkMode ? AppTheme.darkBg3 : AppTheme.lightBg3,
-                            border: Border.all(
-                              color: isDarkMode
-                                  ? AppTheme.darkAccent.withOpacity(0.3)
-                                  : AppTheme.lightBg2,
-                              width: 1.5,
-                            ),
-                            borderRadius: BorderRadius.circular(24),
-                          ),
-                          child: TextField(
-                            controller: _messageController,
-                            decoration: InputDecoration(
-                              hintText: 'Сообщение...',
-                              border: InputBorder.none,
-                              filled: false,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
+              child: widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.network(
+                        widget.avatarUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Center(
+                            child: Text(
+                              widget.username.isNotEmpty
+                                  ? widget.username[0].toUpperCase()
+                                  : '?',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
                               ),
                             ),
-                            maxLines: null,
-                            onChanged: (value) => setState(() {}),
-                          ),
+                          );
+                        },
+                      ),
+                    )
+                  : Center(
+                      child: Text(
+                        widget.username.isNotEmpty
+                            ? widget.username[0].toUpperCase()
+                            : '?',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
                         ),
                       ),
-
-                      const SizedBox(width: 8),
-
-                      // Кнопка отправки
-                      Container(
-                        decoration: BoxDecoration(
-                          color: AppTheme.lightButtonBg,
-                          shape: BoxShape.circle,
-                        ),
-                        child: IconButton(
-                          icon: _isSending
-                              ? SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation(
-                                      isDarkMode
-                                          ? AppTheme.darkButtonText
-                                          : AppTheme.lightButtonText,
-                                    ),
-                                  ),
-                                )
-                              : Icon(
-                                  Icons.send_rounded,
-                                  color: isDarkMode
-                                      ? AppTheme.darkButtonText
-                                      : AppTheme.lightButtonText,
-                                ),
-                          onPressed:
-                              (_isSending || _messageController.text.isEmpty)
-                                  ? null
-                                  : _sendMessage,
-                        ),
-                      ),
-                    ],
-                  ),
-                  // TODO: Добавить picker эмодзи когда _showEmojiPicker == true
-                ],
+                    ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                widget.username,
+                style: const TextStyle(fontSize: 16),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
         ),
       ),
+      body: Column(
+        children: [
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _messages.isEmpty
+                    ? Center(
+                        child: Text(
+                          'Нет сообщений',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      )
+                    : ListView.builder(
+                        reverse: true,
+                        itemCount: _messages.length,
+                        itemBuilder: (context, index) {
+                          final message = _messages[index];
+                          final content = message['content'] ?? '';
+                          final timestamp = message['createdAt'] ?? '';
+                          final senderId = message['senderId'] ?? '';
+                          final currentUserId = 
+                              context.read<ApiClient>().currentUserId ?? '';
+                          final isOwnMessage = senderId == currentUserId;
+                          final isEdited = message['isEdited'] ?? false;
+
+                          return GestureDetector(
+                            onLongPress: () {
+                              // ✅ Получаем позицию контекста сообщения
+                              final renderBox = context.findRenderObject() as RenderBox;
+                              final offset = renderBox.localToGlobal(Offset.zero);
+                              
+                              _showMessageContextMenu(
+                                message,
+                                Offset(
+                                  isOwnMessage 
+                                    ? MediaQuery.of(context).size.width - 200
+                                    : 16,
+                                  offset.dy + (index * 100),
+                                ),
+                              );
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              child: Align(
+                                alignment: isOwnMessage
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: Container(
+                                  constraints: BoxConstraints(
+                                    maxWidth: MediaQuery.of(context).size.width * 0.75,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isOwnMessage
+                                        ? AppTheme.lightButtonBg
+                                        : (isDarkMode
+                                            ? AppTheme.darkBg3
+                                            : AppTheme.lightBg2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: isOwnMessage
+                                        ? CrossAxisAlignment.end
+                                        : CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        content,
+                                        style: TextStyle(
+                                          color: isOwnMessage
+                                              ? Colors.white
+                                              : (isDarkMode
+                                                  ? Colors.white
+                                                  : Colors.black),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            _formatTime(timestamp),
+                                            style: TextStyle(
+                                              color: isOwnMessage
+                                                  ? Colors.white70
+                                                  : (isDarkMode
+                                                      ? Colors.grey[400]
+                                                      : Colors.grey[600]),
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                          if (isEdited) ...[
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              '(отредактировано)',
+                                              style: TextStyle(
+                                                color: isOwnMessage
+                                                    ? Colors.white70
+                                                    : (isDarkMode
+                                                        ? Colors.grey[400]
+                                                        : Colors.grey[600]),
+                                                fontSize: 10,
+                                                fontStyle: FontStyle.italic,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: isDarkMode ? AppTheme.darkBg3 : AppTheme.lightBg2,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _messageController,
+                    decoration: InputDecoration(
+                      hintText: 'Напишите сообщение...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                    ),
+                    maxLines: 3,
+                    minLines: 1,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FloatingActionButton(
+                  mini: true,
+                  onPressed: _sendMessage,
+                  child: const Icon(Icons.send),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  String _formatMessageTime(dynamic timestamp) {
-    if (timestamp == null) return '';
+  String _formatTime(dynamic timestamp) {
+    if (timestamp == null || timestamp.toString().isEmpty) {
+      return DateTime.now().add(const Duration(hours: 5)).toString().substring(11, 16);
+    }
     try {
-      final date = DateTime.parse(timestamp.toString());
-      return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+      final dateStr = timestamp.toString().replaceAll('Z', '+00:00');
+      var date = DateTime.parse(dateStr);
+      // ✅ Добавляем 5 часов к серверному времени
+      date = date.add(const Duration(hours: 5));
+      final now = DateTime.now();
+      final diff = now.difference(date);
+
+      final timeStr = '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+      
+      if (diff.inSeconds < 60) {
+        return timeStr;
+      } else if (diff.inMinutes < 60) {
+        return timeStr;
+      } else if (diff.inHours < 24) {
+        return timeStr;
+      } else if (diff.inDays == 1) {
+        return 'вчера $timeStr';
+      } else if (diff.inDays < 7) {
+        return '${diff.inDays}д назад $timeStr';
+      } else {
+        return '${date.day}.${date.month}.${date.year} $timeStr';
+      }
     } catch (e) {
-      return '';
+      return DateTime.now().add(const Duration(hours: 5)).toString().substring(11, 16);
     }
   }
 }

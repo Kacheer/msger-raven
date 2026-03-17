@@ -66,7 +66,9 @@ class ApiClient {
     _currentUserId = userId;
   }
 
-  String? get currentUserId => _currentUserId;
+  String? get token => _token;  // ✅ Добавить getter
+  String? get currentUserId => _currentUserId;  // ✅ Добавить getter
+  Dio get dio => _dio; // ✅ Добавить getter для dio
 
   void clearToken() {
     _token = null;
@@ -176,22 +178,8 @@ class ApiClient {
     }
   }
 
-  Future<Response> getChats({int page = 1, int pageSize = 25}) async {
-    try {
-      _logger.i('📤 Fetching chats - Page: $page, Size: $pageSize');
-      final response = await get(
-        '/Chats',
-        queryParameters: {
-          'page': page,
-          'pageSize': pageSize,
-        },
-      );
-      _logger.i('📥 Chats loaded: ${response.data}');
-      return response;
-    } on DioException catch (e) {
-      _logger.e('❌ Get Chats Error: $e');
-      rethrow;
-    }
+  Future<Response> getChats({int page = 1, int pageSize = 25}) {
+    return get('/Chats?page=$page&pageSize=$pageSize');
   }
 
   Future<Response> createGroupChat({
